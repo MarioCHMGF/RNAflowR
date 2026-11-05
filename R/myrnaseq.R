@@ -7,10 +7,7 @@
 #' @return deg dataframe your_object$degs and dgeObj your_object$dgeObj
 #' @import edgeR
 #' @import limma
-#' @import gplots
-#' @import RColorBrewer
 #' @import pheatmap
-#' @import dendextend
 #'
 #' @export
 
