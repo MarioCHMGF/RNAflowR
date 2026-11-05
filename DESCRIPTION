@@ -1,0 +1,24 @@
+Package: RNAflowR
+Type: Package
+Title: RNA Sequencing Quality Control, Alignment, Counting and Differential Expression
+Version: 0.1.0
+Authors@R: person("Mario", "Gorenjak", role = c("aut", "cre"), email = "mario.gorenjak@um.si")
+Description: An R workflow for RNA sequencing quality assessment, Rsubread
+    reference indexing, splice-aware read alignment, featureCounts gene
+    quantification, and edgeR/limma-voom differential expression analysis.
+    Maintains the original count-per-million filtering approach. Optional
+    organism-specific annotation is performed exclusively on differential
+    expression results by calcdeg().
+License: MIT
+Encoding: UTF-8
+Depends: R (>= 4.2.0)
+Imports:
+    edgeR,
+    limma,
+    pheatmap,
+    ggplot2,
+    ggrepel,
+    Rsubread
+Suggests:
+    AnnotationDbi,
+    org.Hs.eg.db
