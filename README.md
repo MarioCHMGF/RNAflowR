@@ -78,3 +78,7 @@ counts <- quantify_genes(
 The function returns a matrix with **gene IDs as row names** and **one column per BAM sample**, so no sample-number-dependent column selection is required. The complete matrix, filtered matrix, and exclusions are saved. The original hard-coded `m[, c(2:9)]` is intentionally not reproduced.
 
 For reproducible new analyses and nonhuman organisms, a versioned reference assembly and matching external annotation are preferable.
+
+
+### Counting policy
+`quantify_genes()` explicitly sets `countMultiMappingReads = FALSE` and `allowMultiOverlap = FALSE`, so multimapping alignments and multi-overlapping reads do not contribute to gene counts. Sex-chromosome exclusion remains optional. Original CPM threshold calculations are unchanged.
