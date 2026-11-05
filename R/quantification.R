@@ -52,6 +52,7 @@ exclude_sex_chromosome_genes <- function(
 #'   mapped to any of `sex_chromosomes` are excluded from returned counts.
 #' @param sex_chromosomes Names matching the reference annotation's Chr column.
 #'   For example c("X", "Y") or c("chrX", "chrY").
+#' Multimapping reads and multi-overlapping reads are not counted.
 #' @return Count matrix for downstream analysis (filtered if requested).
 quantify_genes <- function(bam_files, annotation_file = NULL, sample_ids = NULL,
                            is_paired_end = FALSE, strand_specific = 0L,
@@ -79,6 +80,7 @@ quantify_genes <- function(bam_files, annotation_file = NULL, sample_ids = NULL,
 
   dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
   fc_args <- list(files = bam_files, useMetaFeatures = TRUE,
+                  countMultiMappingReads = FALSE, allowMultiOverlap = FALSE,
                   isPairedEnd = is_paired_end, countReadPairs = is_paired_end,
                   strandSpecific = as.integer(strand_specific),
                   nthreads = as.integer(nthreads))

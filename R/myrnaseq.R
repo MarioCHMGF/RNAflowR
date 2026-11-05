@@ -71,7 +71,7 @@ data_subset_norm <- t(apply(data_subset, 1, cal_z_score))
 my_hclust_gene <- hclust(dist(data_subset_norm), method = "complete")
 plot(as.dendrogram(my_hclust_gene), horiz = TRUE)
 
-my_gene_colx <- cutree(tree = as.dendrogram(my_hclust_gene), k = 2)
+my_gene_colx <- cutree(my_hclust_gene, k = 2)
 my_gene_colx <- data.frame(cluster = ifelse(test = my_gene_colx == 1, yes = "cluster1", no = "cluster2"))
 
 my_sample_col <- data.frame(sample = sampleinfo$group)
