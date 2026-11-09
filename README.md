@@ -4,7 +4,8 @@
 
 **Current package version: 0.1.1**  
 **Operating systems:** Windows and Linux  
-**Source code:** https://github.com/MarioCHMGF/RNAflowR
+**Installation source:** https://github.com/MarioCHMGF/RNAflowR  
+**No GitHub account, file uploads, or knowledge of Git are required.** All analyses run locally in R.
 
 RNAflowR brings together established tools in a workflow that can be run from the **R console**, with no Bash scripting required. It uses Rsubread for alignment and gene quantification, edgeR for count processing and TMM normalization, and limma–voom for differential expression analysis. The original RNAflowR CPM filtering procedure is retained.
 
@@ -59,7 +60,7 @@ These optional annotation packages are **not required** for alignment, gene coun
 
 ### 1.3 Updating RNAflowR
 
-After a new GitHub release, install the current version with:
+To update to a newer RNAflowR version, run this command in R:
 
 ```r
 remotes::install_github(
@@ -74,32 +75,32 @@ Restart R and load `library(RNAflowR)` afterward.
 
 ---
 
-## 2. Prepare the folders
+## 2. Prepare your working folders
 
-**Keep the reference genome and sequencing files outside the RNAflowR GitHub repository.** Large FASTA, FASTQ, BAM, and index files should not be uploaded to GitHub.
+RNAflowR works with files **stored on your own computer or server**. You do not need to upload FASTQ files, reference genomes, or results anywhere. The package is installed into R, and the data stay in folders you choose.
 
-A suggested folder layout:
+Create two main folders: one for the reference genome and another for your analysis. The names below are **examples**; you can choose different names or locations.
 
 ```text
 YOUR_HOME/
-├── reference_genome_2026/
-│   ├── hg19.fasta                  # Reference genome FASTA
-│   ├── hg19_2026_idx.*            # Rsubread index files (if already built)
-│   └── genes.gtf                  # OPTIONAL external gene annotation
-└── RNAflowR_test1/
-    ├── files1/                    # Read 1 FASTQ files
-    ├── files2/                    # Read 2 FASTQ files (paired-end only)
+├── reference_genome/
+│   ├── genome.fasta             # Reference genome (FASTA)
+│   ├── genome_index.*           # Rsubread index (created once)
+│   └── genes.gtf               # OPTIONAL annotation file
+└── RNAseq_analysis/
+    ├── files1/                 # FASTQ Read 1 (R1)
+    ├── files2/                 # FASTQ Read 2 (R2), paired-end only
     ├── qc/
     ├── bam/
     ├── counts/
     └── results/
 ```
 
-Create the folders in R:
+Create these directories **from R**:
 
 ```r
-reference_dir <- path.expand("~/reference_genome_2026")
-analysis_dir <- path.expand("~/RNAflowR_test1")
+reference_dir <- path.expand("~/reference_genome")
+analysis_dir  <- path.expand("~/RNAseq_analysis")
 
 dir.create(reference_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
@@ -109,14 +110,13 @@ for (folder in c("files1", "files2", "qc", "bam", "counts", "results")) {
 }
 
 setwd(analysis_dir)
-getwd()
 ```
 
-On Windows, `~` refers to the R user's home directory; you may instead set explicit paths, for example `reference_dir <- "C:/RNAflowR_reference"` and `analysis_dir <- "C:/RNAflowR_test1"`. Prefer `/` in paths written in R on both systems.
+On Windows, you can also choose paths such as `"C:/RNAseq_reference"` and `"C:/RNAseq_analysis"`. Use `/` in R paths on both systems.
 
-Use your file manager to copy the reference FASTA into `reference_dir`, and paired FASTQ files into `files1` (R1) and `files2` (R2).
+Using your normal file manager, place the genome FASTA in the reference folder and your FASTQ files in the analysis folder's `files1` and `files2` subfolders. No files need to be copied into the RNAflowR package itself.
 
-> **Important distinction:** Paired-end sequencing means each biological sample has two read files (R1 and R2). It does **not** imply a paired statistical comparison. Whether samples are matched or independent is a separate aspect of experimental design.
+> **Paired-end vs. paired samples:** R1/R2 files are a pair of sequencing reads from the same sample. They do not imply that the biological groups should be analyzed using a paired statistical model.
 
 ---
 
@@ -129,18 +129,18 @@ To align RNA-seq reads, RNAflowR requires a **reference genome FASTA** and an **
 Point RNAflowR to its **index basename** (without the `.00.b.array`, `.files`, etc. suffix):
 
 ```r
-index_basename <- file.path(reference_dir, "hg19_2026_idx")
+index_basename <- file.path(reference_dir, "genome_index")
 ```
 
-For example, if you have `hg19_2026_idx.00.b.array`, `hg19_2026_idx.00.b.tab`, and other similarly named files, the index basename is `hg19_2026_idx`. **Do not build the index again.**
+For example, if you have `genome_index.00.b.array`, `genome_index.00.b.tab`, and other similarly named files, the index basename is `genome_index`. **Do not build the index again.**
 
 ### 3.2 If you need to build an index
 
 First place your reference genome FASTA in `reference_dir`. Change the FASTA filename to match your file:
 
 ```r
-reference_fasta <- file.path(reference_dir, "hg19.fasta")
-index_basename <- file.path(reference_dir, "hg19_2026_idx")
+reference_fasta <- file.path(reference_dir, "genome.fasta")
+index_basename <- file.path(reference_dir, "genome_index")
 
 prepare_reference(
   reference_fasta = reference_fasta,
@@ -154,27 +154,24 @@ Index construction may take time and disk space, especially for large genomes, b
 
 ---
 
-## 4. Provide your paired-end FASTQ files
+## 4. Add your FASTQ files
 
-Put one biological sample's R1 and R2 files in the corresponding folders. For example:
+For a simple **two-group example with six samples**, place the paired-end files as shown:
 
 ```text
-files1/SRR8110206_1.fastq     files2/SRR8110206_2.fastq
-files1/SRR8110223_1.fastq     files2/SRR8110223_2.fastq
-files1/SRR8110224_1.fastq     files2/SRR8110224_2.fastq
-files1/SRR8110208_1.fastq     files2/SRR8110208_2.fastq
-files1/SRR8110209_1.fastq     files2/SRR8110209_2.fastq
+files1/Sample01_1.fastq     files2/Sample01_2.fastq
+files1/Sample02_1.fastq     files2/Sample02_2.fastq
+files1/Sample03_1.fastq     files2/Sample03_2.fastq
+files1/Sample04_1.fastq     files2/Sample04_2.fastq
+files1/Sample05_1.fastq     files2/Sample05_2.fastq
+files1/Sample06_1.fastq     files2/Sample06_2.fastq
 ```
 
-**The example below uses the `_1.fastq` / `_2.fastq` naming pattern** commonly produced by `fasterq-dump --split-files`. Edit the filename pattern if your files use `_R1`/`_R2` or another convention. Compressed files may use `.fastq.gz`; check that your installed alignment function supports your input format.
-
-For this example, specify sample IDs once:
+Your file names and number of samples will differ. In R, list **your sample names once**, without `_1.fastq` or `_2.fastq`:
 
 ```r
-sample_ids <- c(
-  "SRR8110206", "SRR8110223", "SRR8110224",
-  "SRR8110208", "SRR8110209"
-)
+sample_ids <- c("Sample01", "Sample02", "Sample03",
+                "Sample04", "Sample05", "Sample06")
 
 files1 <- file.path("files1", paste0(sample_ids, "_1.fastq"))
 files2 <- file.path("files2", paste0(sample_ids, "_2.fastq"))
@@ -182,9 +179,9 @@ files2 <- file.path("files2", paste0(sample_ids, "_2.fastq"))
 stopifnot(all(file.exists(c(files1, files2))))
 ```
 
-**For your own analysis:** Replace these example identifiers with your samples. `sample_ids` must list the intended samples in the correct order. For compressed files, use `"_1.fastq.gz"` and `"_2.fastq.gz"` instead. For single-end data, only `files1` is needed and `read2` is omitted in alignment.
+If your files end in `.fastq.gz`, change the two suffixes to `_1.fastq.gz` and `_2.fastq.gz`. If your file names contain `_R1` / `_R2`, adjust the suffix accordingly. R1 and R2 must belong to the **same sample** and be in the same order. Confirm your installed alignment function supports your FASTQ compression format before processing a large dataset.
 
-The five example samples above are a **demonstration**, not a biological study design or a requirement of RNAflowR. Any appropriate sample count can be used, subject to the statistical model.
+For single-end data, only `files1` is needed; omit `read2` in the alignment example and set `is_paired_end = FALSE` during counting.
 
 ---
 
@@ -207,7 +204,7 @@ The default QC assessment samples **10,000 reads from each FASTQ file**. It repo
 
 ## 6. Align reads to the reference genome
 
-The existing function aligns **one sample at a time**. The following block processes all sample pairs automatically. You do not need to know how the loop works to use it; edit only the paths and number of threads if needed.
+RNAflowR aligns one sample per call. The following ready-to-use R example runs the same function for each sample. Replace only the sample names, paths, and thread count as needed.
 
 ```r
 alignment_time <- system.time({
@@ -258,7 +255,7 @@ Choose the `strand_specific` value that matches your library:
 
 The default, `strand_specific = 0`, **does not mean your library is necessarily unstranded**. Incorrect strandedness may substantially change read assignment and downstream expression estimates. If the library protocol is unknown, resolve it before treating the biological results as final.
 
-### Option A — Rsubread built-in annotation (no GTF needed)
+### Option A — Built-in hg19 annotation (no GTF needed)
 
 For a compatible human **hg19/GRCh37** reference, the original RNAflowR approach can use the built-in RefSeq annotation:
 
@@ -309,19 +306,20 @@ The files written by RNAflowR (e.g., `raw_gene_counts.csv`, `featureCounts_assig
 
 ---
 
-## 8. Create the sample-information table
+## 8. Provide sample group information
 
 RNAflowR needs to know which sample belongs to each biological group. Create a small file named **`sampleinfo.csv`** in the analysis directory. The first column contains sample IDs; the second contains groups.
 
-Example for the five samples used above:
+Example for the six sample names used above:
 
 ```csv
 sample,group
-SRR8110206,Fibroid
-SRR8110223,Fibroid
-SRR8110224,Fibroid
-SRR8110208,Normal
-SRR8110209,Normal
+Sample01,Treatment
+Sample02,Treatment
+Sample03,Treatment
+Sample04,Control
+Sample05,Control
+Sample06,Control
 ```
 
 A CSV can be created in Excel, LibreOffice Calc, or a text editor. Use the *actual experimental group names and sample IDs* for your dataset.
@@ -347,12 +345,12 @@ rownames(sampleinfo) <- sampleinfo$sample
 
 ### Set the direction of your comparison
 
-For a two-group comparison, **the first factor level is the reference group**. If you want positive log2 fold changes to mean higher expression in fibroid tissue:
+For a two-group comparison, **the first factor level is the reference group**. If you want positive log2 fold changes to mean higher expression in the Treatment group:
 
 ```r
 sampleinfo$group <- factor(
   sampleinfo$group,
-  levels = c("Normal", "Fibroid")
+  levels = c("Control", "Treatment")
 )
 ```
 
@@ -374,7 +372,7 @@ result <- myrnaseq(
 )
 ```
 
-`groupnum` is **the minimum number of samples required to exceed the original CPM threshold**. For this demonstration, it equals the size of the smaller group (2), **not** the number of experimental groups.
+`groupnum` is **the minimum number of samples required to exceed the original CPM threshold**. For this demonstration, it equals the size of the smaller group (3), **not** the number of experimental groups.
 
 The original algorithm calculates a dataset-specific CPM threshold using genes with exactly 10 reads and retains genes above that threshold in at least `groupnum` samples. It has limitations for very small or atypical datasets, including datasets lacking genes with exactly 10 reads; review the filter's suitability for your study.
 
@@ -425,7 +423,7 @@ If gene-name annotation is not needed, simply omit `annotation_db` and `annotati
 
 ## 11. Create a volcano plot
 
-The `volcano()` function returns a ggplot object. The example below uses the adjusted p-value (`Q = TRUE`):
+The current `volcano()` function uses the `SYMBOL` column to label genes. **Complete the optional annotation step above before using this plot.** The example below uses the adjusted p-value (`Q = TRUE`):
 
 ```r
 p <- volcano(degs_annotated, Q = TRUE)
@@ -455,7 +453,6 @@ saveRDS(
     sampleinfo = sampleinfo,
     counts = counts,
     result = result,
-    degs_annotated = degs_annotated,
     qc = qc
   ),
   "results/RNAflowR_analysis.rds"
@@ -469,7 +466,7 @@ saved <- readRDS("results/RNAflowR_analysis.rds")
 head(saved$result$degs)
 ```
 
-The save example assumes you ran optional gene annotation. If you skipped that step, remove `degs_annotated = degs_annotated,` from the list.
+If you also ran optional gene annotation, you can save `degs_annotated` separately using `saveRDS(degs_annotated, "results/DEG_annotated.rds")`.
 
 For scientific reporting, record the reference assembly and its source, annotation source, FASTQ accessions, library layout and strandedness from the preparation protocol, sample metadata, exact package versions, and computational parameters. You can save package versions using:
 
@@ -526,7 +523,7 @@ Check the reference factor level in `sampleinfo$group` before running `myrnaseq(
 
 ## 15. Software availability, citation, and development status
 
-RNAflowR is available at **https://github.com/MarioCHMGF/RNAflowR**. It builds on the R/Bioconductor ecosystem and established methods including Rsubread, featureCounts, edgeR, TMM, and limma–voom. When publishing results produced using RNAflowR, also cite the original research publications associated with the underlying methods and the source of any public RNA-seq dataset.
+RNAflowR can be installed directly into R using the command in Section 1; the source code is hosted at **https://github.com/MarioCHMGF/RNAflowR**. **No upload to GitHub is part of the analysis.** It builds on the R/Bioconductor ecosystem and established methods including Rsubread, featureCounts, edgeR, TMM, and limma–voom. When publishing results produced using RNAflowR, also cite the original research publications associated with the underlying methods and the source of any public RNA-seq dataset.
 
 Selected foundational references:
 
