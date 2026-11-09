@@ -11,7 +11,10 @@
 #'
 #' @export
 
-myrnaseq = function(countdata, sampleinfo, samplenum, groupnum){
+myrnaseq <- function(countdata, sampleinfo, samplenum, groupnum,
+                     outdir = ".") {
+
+  dir.create(outdir, recursive = TRUE, showWarnings = FALSE)
  
 myCPM <- cpm(countdata)
 
