@@ -1,7 +1,7 @@
 Package: RNAflowR
 Type: Package
 Title: RNA Sequencing Quality Control, Alignment, Counting and Differential Expression
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: person("Mario", "Gorenjak", role = c("aut", "cre"), email = "mario.gorenjak@um.si")
 Description: An R workflow for RNA sequencing quality assessment, Rsubread
     reference indexing, splice-aware read alignment, featureCounts gene
