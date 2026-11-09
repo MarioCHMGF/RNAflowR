@@ -74,13 +74,16 @@ my_gene_colx <- data.frame(cluster = ifelse(test = my_gene_colx == 1, yes = "clu
 my_sample_col <- data.frame(sample = sampleinfo$group)
 row.names(my_sample_col) <- colnames(data_subset)
 
-jpeg(file="High_var_genes.heatmap.jpg", width=20, height=35, units="cm", res=300)
-pheatmap(data_subset_norm,
-         annotation_row = my_gene_colx,
-         annotation_col = my_sample_col,
-         cutree_rows = 2,
-         cutree_cols = 1)
-dev.off()
+pheatmap(
+  data_subset_norm,
+  annotation_row = my_gene_colx,
+  annotation_col = my_sample_col,
+  cutree_rows = 2,
+  cutree_cols = 1,
+  filename = "High_var_genes.heatmap.png",
+  width = 9,
+  height = 12
+)
 
 dgeObj <- calcNormFactors(dgeObj)
 
