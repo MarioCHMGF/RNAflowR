@@ -1,413 +1,289 @@
 # RNAflowR
 
-**RNAflowR is an open-source R package for bulk RNA-seq quality assessment, reference-genome indexing, alignment, gene counting, and differential gene expression analysis.**
+**A copy–paste-friendly R package for bulk RNA-seq quality checks, alignment, gene counting and differential expression analysis.**
 
-**Current package version: 0.1.1**  
-**Operating systems:** Windows and Linux  
-**Installation source:** https://github.com/MarioCHMGF/RNAflowR  
-**No GitHub account, file uploads, or knowledge of Git are required.** All analyses run locally in R.
+**Version tested:** RNAflowR 0.1.1 · **Platforms:** Linux and Windows · **Code:** https://github.com/MarioCHMGF/RNAflowR
 
-RNAflowR brings together established tools in a workflow that can be run from the **R console**, with no Bash scripting required. It uses Rsubread for alignment and gene quantification, edgeR for count processing and TMM normalization, and limma–voom for differential expression analysis. The original RNAflowR CPM filtering procedure is retained.
+RNAflowR combines Rsubread, featureCounts, edgeR and limma–voom while retaining its author's original CPM expression-filtering procedure. The workflow has been executed with **two six-sample, paired-end public datasets**, one human and one mouse. These are software demonstrations, **not** independent validation of biological conclusions or performance benchmarks.
 
-> **Research software:** RNAflowR is under ongoing evaluation. The workflow has been tested with synthetic data and an initial five-sample real-data analysis. Broader benchmarking, additional usability testing, and biological validation are still in progress. Users remain responsible for selecting an appropriate reference genome, library strandedness, sample groups, and statistical design.
+> **How to use this README:** Copy → paste → run → verify → next step. Commands labeled **R** belong in R/RStudio. Commands labeled **Terminal** belong in a Linux terminal, outside R. Change file locations for your own computer. Research users must confirm reference assembly, annotation, library strandedness and experimental design.
 
----
-
-## 1. Install R and RNAflowR
-
-### 1.1 Install R
-
-Install R from https://cran.r-project.org/. RStudio is optional; RNAflowR also works in the regular R console.
-
-**All commands below are R commands.** On Linux, start an R session by opening a terminal and typing `R`; then enter these commands at the `>` prompt. On Windows, open R or RStudio. Do not paste R commands into Bash or the Windows command prompt.
-
-### 1.2 Install dependencies and RNAflowR
-
-Run the following **once** in R:
+## 1. Install RNAflowR (R; once per R installation)
 
 ```r
 install.packages(c("BiocManager", "remotes", "pheatmap", "ggplot2", "ggrepel"))
-
-BiocManager::install(
-  c("Rsubread", "edgeR", "limma"),
-  ask = FALSE,
-  update = FALSE
-)
-
-remotes::install_github(
-  "MarioCHMGF/RNAflowR",
-  dependencies = FALSE,
-  upgrade = "never"
-)
-
+BiocManager::install(c("Rsubread", "edgeR", "limma", "AnnotationDbi"),
+                     ask = FALSE, update = FALSE)
+remotes::install_github("MarioCHMGF/RNAflowR",
+                        dependencies = FALSE, upgrade = "never")
 library(RNAflowR)
 packageVersion("RNAflowR")
 ```
 
-The installed version should be **0.1.1** or newer. Installation is needed only once per R library, although `library(RNAflowR)` must be run in each new R session.
-
-**Optional human gene-name annotation:** If you want gene symbols and descriptions in the final differential-expression table, install:
+Gene-name annotation is optional. For the **human** example, install `org.Hs.eg.db`; for the **mouse** example, install `org.Mm.eg.db`:
 
 ```r
-BiocManager::install(
-  c("AnnotationDbi", "org.Hs.eg.db"),
-  ask = FALSE,
-  update = FALSE
-)
+BiocManager::install(c("org.Hs.eg.db", "org.Mm.eg.db"),
+                     ask = FALSE, update = FALSE)
 ```
 
-These optional annotation packages are **not required** for alignment, gene counting, or differential-expression statistics.
+**Update an existing installation:** `remotes::install_github("MarioCHMGF/RNAflowR", force = TRUE, dependencies = FALSE, upgrade = "never")`, then restart R.
 
-### 1.3 Updating RNAflowR
+## 2. Choose a validated example
 
-To update to a newer RNAflowR version, run this command in R:
+| | Human example | Mouse example |
+|---|---|---|
+| Study | PRJNA498292 / GSE120854 | PRJNA1199025 / GSE284446 |
+| Species | *Homo sapiens* | *Mus musculus* |
+| Comparison | Fibroid vs normal | MASLD vs standard diet (SD) |
+| Samples | 3 + 3 | 3 + 3 |
+| Genome | hg19 / GRCh37 | mm10 / GRCm38 |
+| featureCounts built-in annotation | `"hg19"` | `"mm10"` |
+| Example analysis folder | `~/RNAflowR_test1` | `~/RNAflowR_test2` |
+
+**Both studies used paired-end sequencing; their example statistical comparison is unpaired.** Two FASTQ mates do not imply matched biological cases and controls. The mouse study's sample assignment below is taken from the SRA run metadata.
+
+### 2A. Set up the human experiment (R)
 
 ```r
-remotes::install_github(
-  "MarioCHMGF/RNAflowR",
-  dependencies = FALSE,
-  upgrade = "never",
-  force = TRUE
-)
+library(RNAflowR)
+analysis_dir <- path.expand("~/RNAflowR_test1")
+reference_fasta <- path.expand("~/reference_genome_2026/hg19.fasta")
+index_basename <- path.expand("~/reference_genome_2026/hg19_2026_idx")
+annotation_name <- "hg19"
+case_ids <- c("SRR8110206", "SRR8110223", "SRR8110224")
+control_ids <- c("SRR8110208", "SRR8110209", "SRR8110210")
+case_name <- "Fibroid"
+control_name <- "Normal"
 ```
 
-Restart R and load `library(RNAflowR)` afterward.
+### 2B. **Or** set up the mouse experiment (R)
 
----
-
-## 2. Prepare your working folders
-
-RNAflowR works with files **stored on your own computer or server**. You do not need to upload FASTQ files, reference genomes, or results anywhere. The package is installed into R, and the data stay in folders you choose.
-
-Create two main folders: one for the reference genome and another for your analysis. The names below are **examples**; you can choose different names or locations.
-
-```text
-YOUR_HOME/
-├── reference_genome/
-│   ├── genome.fasta             # Reference genome (FASTA)
-│   ├── genome_index.*           # Rsubread index (created once)
-│   └── genes.gtf               # OPTIONAL annotation file
-└── RNAseq_analysis/
-    ├── files1/                 # FASTQ Read 1 (R1)
-    ├── files2/                 # FASTQ Read 2 (R2), paired-end only
-    ├── qc/
-    ├── bam/
-    ├── counts/
-    └── results/
-```
-
-Create these directories **from R**:
+Choose this **instead of** 2A if you are processing the mouse data:
 
 ```r
-reference_dir <- path.expand("~/reference_genome")
-analysis_dir  <- path.expand("~/RNAseq_analysis")
+library(RNAflowR)
+analysis_dir <- path.expand("~/RNAflowR_test2")
+reference_fasta <- path.expand("~/reference_genome_mouse/mm10.fa")
+index_basename <- path.expand("~/reference_genome_mouse/mm10_idx")
+annotation_name <- "mm10"
+case_ids <- c("SRR31741942", "SRR31741943", "SRR31741944")
+control_ids <- c("SRR31741945", "SRR31741946", "SRR31741947")
+case_name <- "MASLD"
+control_name <- "SD"
+```
 
-dir.create(reference_dir, recursive = TRUE, showWarnings = FALSE)
+**Run all subsequent R steps in the same session** (or rerun the selected setup block when reopening R).
+
+## 3. Create folders (R)
+
+```r
 dir.create(analysis_dir, recursive = TRUE, showWarnings = FALSE)
-
-for (folder in c("files1", "files2", "qc", "bam", "counts", "results")) {
-  dir.create(file.path(analysis_dir, folder), showWarnings = FALSE)
-}
-
 setwd(analysis_dir)
+for (folder in c("files1", "files2", "qc", "bam", "counts", "results")) {
+  dir.create(folder, showWarnings = FALSE)
+}
+getwd()
 ```
 
-On Windows, you can also choose paths such as `"C:/RNAseq_reference"` and `"C:/RNAseq_analysis"`. Use `/` in R paths on both systems.
+Place `_1.fastq` FASTQ files in `files1/`, and their matching `_2.fastq` mates in `files2/`. The filenames must share the same sample ID. Do **not** place FASTQ/BAM/reference files in the GitHub repository.
 
-Using your normal file manager, place the genome FASTA in the reference folder and your FASTQ files in the analysis folder's `files1` and `files2` subfolders. No files need to be copied into the RNAflowR package itself.
+### Optional: download the exact six public SRA runs (Linux Terminal)
 
-> **Paired-end vs. paired samples:** R1/R2 files are a pair of sequencing reads from the same sample. They do not imply that the biological groups should be analyzed using a paired statistical model.
+Install the **NCBI SRA Toolkit** to use `fasterq-dump`. These terminal commands download *uncompressed*, split paired-end FASTQs into the current directory. Copy the `_1.fastq` files to `files1/` and `_2.fastq` to `files2/` afterward. Downloads require substantial disk space; `fasterq-dump` also uses temporary storage.
 
----
+**Human (Terminal):**
 
-## 3. Index the reference genome with Rsubread (once)
+```bash
+fasterq-dump SRR8110206 --split-files -e 8 -p
+fasterq-dump SRR8110223 --split-files -e 8 -p
+fasterq-dump SRR8110224 --split-files -e 8 -p
+fasterq-dump SRR8110208 --split-files -e 8 -p
+fasterq-dump SRR8110209 --split-files -e 8 -p
+fasterq-dump SRR8110210 --split-files -e 8 -p
+```
 
-To align RNA-seq reads, RNAflowR requires a **reference genome FASTA** and an **Rsubread index built from that FASTA**. An index produced by STAR, HISAT2, or BWA cannot be substituted for an Rsubread index.
+**Mouse (Terminal):**
 
-### 3.1 If you already have an Rsubread index
+```bash
+fasterq-dump SRR31741942 --split-files -e 8 -p
+fasterq-dump SRR31741943 --split-files -e 8 -p
+fasterq-dump SRR31741944 --split-files -e 8 -p
+fasterq-dump SRR31741945 --split-files -e 8 -p
+fasterq-dump SRR31741946 --split-files -e 8 -p
+fasterq-dump SRR31741947 --split-files -e 8 -p
+```
 
-Point RNAflowR to its **index basename** (without the `.00.b.array`, `.files`, etc. suffix):
+Alternatively, obtain FASTQs through your sequencing facility or another trusted source and copy them with a graphical file manager.
+
+## 4. Obtain/index a matching reference genome (once)
+
+**Mouse mm10 example (Linux Terminal):**
+
+```bash
+mkdir -p ~/reference_genome_mouse
+cd ~/reference_genome_mouse
+wget https://hgdownload.soe.ucsc.edu/goldenPath/mm10/bigZips/mm10.fa.gz
+gunzip mm10.fa.gz
+```
+
+**Human hg19:** Download a complete hg19/GRCh37 FASTA from a trusted genome provider and save it as `~/reference_genome_2026/hg19.fasta`. Do not substitute hg38/GRCh38 while using `annot_inbuilt = "hg19"`.
+
+**R (same for either dataset after Step 2A or 2B):**
 
 ```r
-index_basename <- file.path(reference_dir, "genome_index")
+stopifnot(file.exists(reference_fasta))
+if (length(Sys.glob(paste0(index_basename, ".*"))) == 0) {
+  prepare_reference(reference_fasta = reference_fasta,
+                    index_basename = index_basename)
+}
+length(Sys.glob(paste0(index_basename, ".*")))  # Expect > 0
 ```
 
-For example, if you have `genome_index.00.b.array`, `genome_index.00.b.tab`, and other similarly named files, the index basename is `genome_index`. **Do not build the index again.**
+Index creation can be lengthy. An Rsubread index is not interchangeable with STAR, HISAT2 or BWA indices. **Do not rebuild an index that already exists.** The FASTA assembly must match the selected featureCounts annotation.
 
-### 3.2 If you need to build an index
+## 5. Locate and verify paired FASTQ files (R)
 
-First place your reference genome FASTA in `reference_dir`. Change the FASTA filename to match your file:
+Do not manually type filenames or depend on the order in a directory. These commands discover and match every sample by its ID:
 
 ```r
-reference_fasta <- file.path(reference_dir, "genome.fasta")
-index_basename <- file.path(reference_dir, "genome_index")
+files1 <- sort(list.files("files1", pattern = "_1\\.fastq$", full.names = TRUE))
+files2 <- sort(list.files("files2", pattern = "_2\\.fastq$", full.names = TRUE))
+sample_ids <- sub("_1\\.fastq$", "", basename(files1))
+mate_ids <- sub("_2\\.fastq$", "", basename(files2))
 
-prepare_reference(
-  reference_fasta = reference_fasta,
-  index_basename = index_basename
-)
+stopifnot(length(files1) == 6, length(files2) == 6,
+          identical(sample_ids, mate_ids),
+          setequal(sample_ids, c(case_ids, control_ids)),
+          all(file.exists(c(files1, files2))))
+print(sample_ids)
 ```
 
-Index construction may take time and disk space, especially for large genomes, but needs to be done only once per reference/index configuration.
+**Expected:** six sample IDs. This example expects **uncompressed** `.fastq` files produced by `fasterq-dump`. If your files are `.fastq.gz`, the discovery patterns and the installed alignment wrapper's supported input format must be checked before using them.
 
-**A GTF/GFF file is not required for genome indexing.** Gene-count annotation is chosen separately in Step 6.
-
----
-
-## 4. Add your FASTQ files
-
-For a simple **two-group example with six samples**, place the paired-end files as shown:
-
-```text
-files1/Sample01_1.fastq     files2/Sample01_2.fastq
-files1/Sample02_1.fastq     files2/Sample02_2.fastq
-files1/Sample03_1.fastq     files2/Sample03_2.fastq
-files1/Sample04_1.fastq     files2/Sample04_2.fastq
-files1/Sample05_1.fastq     files2/Sample05_2.fastq
-files1/Sample06_1.fastq     files2/Sample06_2.fastq
-```
-
-Your file names and number of samples will differ. In R, list **your sample names once**, without `_1.fastq` or `_2.fastq`:
+## 6. FASTQ quality control (R)
 
 ```r
-sample_ids <- c("Sample01", "Sample02", "Sample03",
-                "Sample04", "Sample05", "Sample06")
-
-files1 <- file.path("files1", paste0(sample_ids, "_1.fastq"))
-files2 <- file.path("files2", paste0(sample_ids, "_2.fastq"))
-
-stopifnot(all(file.exists(c(files1, files2))))
-```
-
-If your files end in `.fastq.gz`, change the two suffixes to `_1.fastq.gz` and `_2.fastq.gz`. If your file names contain `_R1` / `_R2`, adjust the suffix accordingly. R1 and R2 must belong to the **same sample** and be in the same order. Confirm your installed alignment function supports your FASTQ compression format before processing a large dataset.
-
-For single-end data, only `files1` is needed; omit `read2` in the alignment example and set `is_paired_end = FALSE` during counting.
-
----
-
-## 5. Assess sequencing quality
-
-```r
-qc <- fastq_qc(
-  fastq_files = c(files1, files2),
-  outdir = "qc",
-  nreads = 10000
-)
-
+qc <- fastq_qc(fastq_files = c(files1, files2),
+               outdir = "qc", nreads = 10000, min_mean_q = 20)
 print(qc)
+stopifnot(nrow(qc) == 12, all(qc$passes_mean_q))
 list.files("qc")
 ```
 
-The default QC assessment samples **10,000 reads from each FASTQ file**. It reports mean Phred quality, Q20/Q30 percentages, and per-cycle summaries and plots. It does **not** examine every sequencing read by default, trim adapters, or replace a comprehensive FastQC/MultiQC assessment.
+The built-in QC samples the **first 10,000 reads per file**, not every read. It reports mean Phred quality and Q20/Q30 metrics. This is a quick quality check, not a replacement for adapter/content assessment with more comprehensive tools. A QC pass does not establish a correct experimental design.
 
----
+## 7. Align paired-end reads (R)
 
-## 6. Align reads to the reference genome
-
-RNAflowR aligns one sample per call. The following ready-to-use R example runs the same function for each sample. Replace only the sample names, paths, and thread count as needed.
+This code processes all six samples **sequentially**, with eight alignment threads per sample. It **skips an existing BAM** so a completed sample is not needlessly realigned after an interruption.
 
 ```r
-alignment_time <- system.time({
-  for (i in seq_along(sample_ids)) {
-    align_rnaseq(
-      read1 = files1[i],
-      read2 = files2[i],
-      index_basename = index_basename,
-      sample_id = sample_ids[i],
-      outdir = "bam",
-      nthreads = 8
-    )
+for (i in seq_along(sample_ids)) {
+  expected_bam <- file.path("bam", paste0(sample_ids[i], ".bam"))
+  if (!file.exists(expected_bam)) {
+    align_rnaseq(read1 = files1[i], read2 = files2[i],
+                 index_basename = index_basename,
+                 sample_id = sample_ids[i],
+                 outdir = "bam", nthreads = 8)
   }
-})
+}
 
-alignment_time
-list.files("bam", pattern = "\\.bam$")
-```
-
-Use a suitable `nthreads` value for your computer. Alignment creates a BAM file for each sample as well as alignment-summary output. The reference index remains in its own folder.
-
-**Single-end data:** Remove the `read2 = files2[i],` line and supply only the single-end read file. **FASTQ format:** The current alignment wrapper configures Rsubread's FASTQ input internally; if it does not recognize a particular compressed/uncompressed input format, check the function and your Rsubread installation before processing a full dataset.
-
----
-
-## 7. Quantify gene expression with featureCounts
-
-RNAflowR uses `Rsubread::featureCounts()` and returns a **raw gene count matrix**. It saves the count matrix and assignment summaries automatically into `outdir`.
-
-Prepare BAM filenames (no complex R code is needed):
-
-```r
 bam_files <- file.path("bam", paste0(sample_ids, ".bam"))
 stopifnot(all(file.exists(bam_files)))
+print(bam_files)
 ```
 
-### IMPORTANT: Determine library strandedness from your sequencing protocol
+**Important:** `align_rnaseq()` returns a **list** with a BAM path and alignment summary, not a single character string. Do not pass its return value to `vapply(..., FUN.VALUE = character(1))`. The loop above avoids that error. Existing BAMs are skipped by filename; check that they are complete and from the correct reference before reusing them. Inspect the Rsubread mapping summary for each sample.
 
-**Before counting, check the RNA-seq library-preparation manual or the information provided by your sequencing facility.** Do not guess the strandedness based on the experimental groups or file names.
+## 8. Quantify genes with featureCounts (R)
 
-Choose the `strand_specific` value that matches your library:
-
-| Value | Meaning |
-|---|---|
-| `0` | Unstranded |
-| `1` | Forward-stranded |
-| `2` | Reverse-stranded |
-
-The default, `strand_specific = 0`, **does not mean your library is necessarily unstranded**. Incorrect strandedness may substantially change read assignment and downstream expression estimates. If the library protocol is unknown, resolve it before treating the biological results as final.
-
-### Option A — Built-in hg19 annotation (no GTF needed)
-
-For a compatible human **hg19/GRCh37** reference, the original RNAflowR approach can use the built-in RefSeq annotation:
+For both worked examples, featureCounts has a **built-in reference annotation**; no external GTF download is necessary:
 
 ```r
 counts <- quantify_genes(
   bam_files = bam_files,
   sample_ids = sample_ids,
-  annot_inbuilt = "hg19",
+  annot_inbuilt = annotation_name,  # "hg19" or "mm10"
   is_paired_end = TRUE,
-  strand_specific = 0,  # CHANGE according to your library protocol
+  strand_specific = 0,
   exclude_sex_chromosomes = FALSE,
   outdir = "counts",
   nthreads = 8
 )
-```
 
-### Option B — External GTF/GFF annotation (when needed)
-
-Use an external annotation for another organism, reference assembly, or annotation release:
-
-```r
-counts <- quantify_genes(
-  bam_files = bam_files,
-  sample_ids = sample_ids,
-  annotation_file = file.path(reference_dir, "genes.gtf"),
-  is_paired_end = TRUE,
-  strand_specific = 0,  # CHANGE according to your library protocol
-  exclude_sex_chromosomes = FALSE,
-  outdir = "counts",
-  nthreads = 8
-)
-```
-
-Use **exactly one** of `annot_inbuilt` and `annotation_file`. The counting annotation must match the reference genome assembly and its chromosome names. The external GTF/GFF file is **optional** if an appropriate built-in annotation exists.
-
-For single-end data, set `is_paired_end = FALSE`. When `exclude_sex_chromosomes = TRUE`, genes annotated on the selected sex chromosomes are excluded **after quantification and before CPM filtering**, while the full count matrix remains saved. The counting wrapper explicitly uses `countMultiMappingReads = FALSE` and `allowMultiOverlap = FALSE`.
-
-Inspect the resulting matrix and output files:
-
-```r
 dim(counts)
-head(counts)
 colSums(counts)
 list.files("counts")
 ```
 
-The files written by RNAflowR (e.g., `raw_gene_counts.csv`, `featureCounts_assignment_summary.csv`) are generated by the **`quantify_genes()` wrapper**. They are not automatically generated by `featureCounts()` when called directly. The wrapper currently writes these files whenever counting is run.
+> **Scientific choice required — library strandedness.** The `0` in the example reproduces the **parameter used for these demonstrations**; it is not proof that the libraries are unstranded. Check the source study or sequencing-provider protocol before making biological claims. Set `strand_specific = 0` for unstranded, `1` for forward-stranded, or `2` for reverse-stranded libraries. An incorrect value can materially distort assignment and DEGs.
 
----
+FeatureCounts uses `countMultiMappingReads = FALSE` and `allowMultiOverlap = FALSE` in RNAflowR. With `exclude_sex_chromosomes = TRUE`, sex chromosome genes are removed *after counting and before expression filtering*. The full unfiltered gene matrix is still saved. If your assembly is not supported by the built-in annotation, replace `annot_inbuilt = annotation_name` with `annotation_file = "/path/to/matching/genes.gtf"` and use **only one** annotation source.
 
-## 8. Provide sample group information
-
-RNAflowR needs to know which sample belongs to each biological group. Create a small file named **`sampleinfo.csv`** in the analysis directory. The first column contains sample IDs; the second contains groups.
-
-Example for the six sample names used above:
-
-```csv
-sample,group
-Sample01,Treatment
-Sample02,Treatment
-Sample03,Treatment
-Sample04,Control
-Sample05,Control
-Sample06,Control
-```
-
-A CSV can be created in Excel, LibreOffice Calc, or a text editor. Use the *actual experimental group names and sample IDs* for your dataset.
-
-Then, in R:
+**Check gene-assignment statistics (R):**
 
 ```r
-sampleinfo <- read.csv("sampleinfo.csv", stringsAsFactors = FALSE)
+assignment <- read.csv("counts/featureCounts_assignment_summary.csv",
+                       check.names = FALSE, row.names = 1)
+print(assignment)
+stopifnot("Status" %in% names(assignment), "Assigned" %in% assignment$Status)
+sample_columns <- setdiff(names(assignment), "Status")
+assigned <- as.numeric(assignment[assignment$Status == "Assigned", sample_columns])
+total <- colSums(assignment[, sample_columns, drop = FALSE])
+print(round(100 * assigned / total, 1))  # % assigned per sample
+```
 
-sampleinfo <- sampleinfo[
-  match(colnames(counts), sampleinfo$sample),
-  , drop = FALSE
-]
+The exported CSV includes a row-number column and a `Status` column; the code deliberately excludes both from the fragment totals.
 
-stopifnot(
-  !anyNA(sampleinfo$sample),
-  !anyDuplicated(sampleinfo$sample),
-  identical(sampleinfo$sample, colnames(counts))
+## 9. Define groups and run differential expression (R)
+
+Group membership is matched **by sample ID**, not alphabetical position. The **control** is the reference group, so positive log2 fold-change indicates higher expression in fibroid/MASLD samples.
+
+```r
+sampleinfo <- data.frame(
+  sample = colnames(counts),
+  group = factor(ifelse(colnames(counts) %in% case_ids,
+                        case_name, control_name),
+                 levels = c(control_name, case_name)),
+  row.names = colnames(counts)
 )
+stopifnot(setequal(sampleinfo$sample, c(case_ids, control_ids)),
+          identical(rownames(sampleinfo), colnames(counts)),
+          all(table(sampleinfo$group) == 3))
+print(sampleinfo)
 
-rownames(sampleinfo) <- sampleinfo$sample
+result <- myrnaseq(countdata = counts,
+                   sampleinfo = sampleinfo,
+                   samplenum = ncol(counts),
+                   groupnum = min(table(sampleinfo$group)),
+                   outdir = "results/DEG")
+
+print(dim(result$degs))
+print(sum(result$degs$adj.P.Val < 0.05, na.rm = TRUE))
+list.files("results/DEG")
 ```
 
-### Set the direction of your comparison
+**What RNAflowR does:** Its original adaptive CPM threshold is based on the mean CPM of genes having **exactly 10 raw reads in each sample**, averaged across samples. A gene is retained if its CPM exceeds that threshold in at least `groupnum` samples (normally the smaller experimental group size). The retained data are TMM-normalized, transformed using limma–voom, fitted with limma, and evaluated using empirical Bayes moderation and Benjamini–Hochberg FDR adjustment.
 
-For a two-group comparison, **the first factor level is the reference group**. If you want positive log2 fold changes to mean higher expression in the Treatment group:
+`groupnum` is the **minimum number of samples satisfying the CPM threshold**, **not** the number of groups. The simple built-in differential-expression model shown here addresses an **unpaired two-group** comparison without additional covariates. Do not use this example unchanged for paired studies, batch effects, covariate-adjusted designs or multifactor experiments.
 
-```r
-sampleinfo$group <- factor(
-  sampleinfo$group,
-  levels = c("Control", "Treatment")
-)
-```
+RNAflowR saves five diagnostics in `results/DEG/`: `Barplot_of_library_sizes.png`, `Boxplot_of_logCPMs.png`, `MDS_dim1_dim2.png`, `High_var_genes.heatmap.png`, and `Final_model.png`.
 
-For another dataset, replace these group names with yours. If the study contains paired biological samples, covariates, batches, or more than two groups, the statistical design requires additional consideration; the simple demonstration below is an **unpaired two-group comparison**.
+## 10. Optional gene symbols and descriptions (R)
 
----
-
-## 9. Run CPM filtering, TMM normalization, and limma–voom
-
-RNAflowR's `myrnaseq()` implements the original CPM-based gene filtering procedure, followed by TMM normalization and limma–voom differential-expression analysis. **The filtering procedure has not been changed in version 0.1.1.**
+Use the organism-specific package corresponding to your chosen example:
 
 ```r
-result <- myrnaseq(
-  countdata = counts,
-  sampleinfo = sampleinfo,
-  samplenum = ncol(counts),
-  groupnum = min(table(sampleinfo$group)),
-  outdir = "results/differential_expression"
-)
-```
+annotation_db <- if (annotation_name == "hg19") {
+  org.Hs.eg.db::org.Hs.eg.db
+} else {
+  org.Mm.eg.db::org.Mm.eg.db
+}
 
-`groupnum` is **the minimum number of samples required to exceed the original CPM threshold**. For this demonstration, it equals the size of the smaller group (3), **not** the number of experimental groups.
-
-The original algorithm calculates a dataset-specific CPM threshold using genes with exactly 10 reads and retains genes above that threshold in at least `groupnum` samples. It has limitations for very small or atypical datasets, including datasets lacking genes with exactly 10 reads; review the filter's suitability for your study.
-
-`myrnaseq()` returns:
-
-```r
-result$dgeObj   # Filtered, TMM-normalized DGEList
-result$degs     # Differential-expression results (without gene symbols)
-```
-
-Check the analysis:
-
-```r
-dim(result$dgeObj)
-head(result$degs)
-list.files("results/differential_expression")
-```
-
-**New in v0.1.1:** `outdir` saves the five diagnostic figures in the specified directory, including `High_var_genes.heatmap.png`. The previous intermittent heatmap export problem was addressed by saving through `pheatmap(filename = ...)`.
-
-> The current heatmap displays the 100 most variable retained genes. Very small datasets with too few retained genes or zero-variance genes may require additional handling.
-
----
-
-## 10. Optional: add gene symbols and gene descriptions
-
-RNAflowR performs **human gene-name annotation only within `calcdeg()`**. There is no second annotation function. This step is optional, and gene symbols are added **only to the final differential-expression results**—not to the raw counts, CPM filter, normalization factors, or model inputs.
-
-For the built-in human hg19 annotation, gene IDs are Entrez identifiers:
-
-```r
 degs_annotated <- calcdeg(
   dgeObjx = result$dgeObj,
   outcome = sampleinfo$group,
-  annotation_db = org.Hs.eg.db::org.Hs.eg.db,
+  annotation_db = annotation_db,
   annotation_keytype = "ENTREZID",
   out_csv = "results/DEG_annotated.csv"
 )
@@ -415,132 +291,81 @@ degs_annotated <- calcdeg(
 head(degs_annotated)
 ```
 
-If gene-name annotation is not needed, simply omit `annotation_db` and `annotation_keytype` from the call. For external GTFs with Ensembl IDs, `annotation_keytype = "ENSEMBL"` may be appropriate; version suffixes in Ensembl IDs can require preprocessing. Other organisms need a matching organism-specific annotation database.
+Both tested built-in annotation choices yield **Entrez gene identifiers**. With other reference annotations (e.g. Ensembl IDs), choose a compatible annotation database and key type. `calcdeg()` **refits the differential-expression model** using the supplied outcome; it does not merely append symbols. For the two example designs, the statistics can be checked for equivalence:
 
-**Important implementation detail:** `calcdeg()` currently **refits the limma–voom model** using `result$dgeObj` and the specified `outcome`. For simple two-group comparisons with the same design, results should agree with `myrnaseq()`. For more complex designs, ensure the model specification matches your intended comparison; do not assume this function merely appends labels to an existing results table.
+```r
+all.equal(result$degs,
+          degs_annotated[rownames(result$degs), colnames(result$degs)],
+          check.attributes = FALSE)
+```
 
----
+Expected: `TRUE` for the tested simple two-group models. Investigate any difference instead of assuming equivalence.
 
-## 11. Create a volcano plot
-
-The current `volcano()` function uses the `SYMBOL` column to label genes. **Complete the optional annotation step above before using this plot.** The example below uses the adjusted p-value (`Q = TRUE`):
+## 11. Save a volcano plot and the reproducibility bundle (R)
 
 ```r
 p <- volcano(degs_annotated, Q = TRUE)
+ggplot2::ggsave("results/volcano.png", plot = p,
+                width = 8, height = 6, dpi = 300)
 
-print(p)
-
-ggplot2::ggsave(
-  filename = "results/volcano.png",
-  plot = p,
-  width = 8,
-  height = 6,
-  dpi = 300
-)
-```
-
-For nominal p-values, use `Q = FALSE`. The plot's default significance and log2 fold-change cutoffs are plotting choices, not automatic proof of biological significance.
-
----
-
-## 12. Save your analysis for later use
-
-Do not rerun lengthy alignments unnecessarily. Save the main R objects:
-
-```r
-saveRDS(
-  list(
-    sampleinfo = sampleinfo,
-    counts = counts,
-    result = result,
-    qc = qc
-  ),
-  "results/RNAflowR_analysis.rds"
-)
-```
-
-To reopen the analysis in another R session:
-
-```r
-saved <- readRDS("results/RNAflowR_analysis.rds")
-head(saved$result$degs)
-```
-
-If you also ran optional gene annotation, you can save `degs_annotated` separately using `saveRDS(degs_annotated, "results/DEG_annotated.rds")`.
-
-For scientific reporting, record the reference assembly and its source, annotation source, FASTQ accessions, library layout and strandedness from the preparation protocol, sample metadata, exact package versions, and computational parameters. You can save package versions using:
-
-```r
+saveRDS(list(qc = qc, counts = counts, sampleinfo = sampleinfo,
+             result = result, annotated_degs = degs_annotated),
+        "results/RNAflowR_complete.rds")
 writeLines(capture.output(sessionInfo()), "results/sessionInfo.txt")
+list.files("results")
 ```
 
----
+Optional annotation can be skipped; then omit the `degs_annotated` and volcano lines. To restore the saved analysis later: `saved <- readRDS("results/RNAflowR_complete.rds")`.
 
-## 13. Where are the output files?
+## 12. What results should I expect from the two examples?
 
-| Folder | Examples of outputs |
+The following results were **observed in RNAflowR 0.1.1** using the named runs, Rsubread built-in annotations, `strand_specific = 0`, no sex chromosome exclusion, and a three-vs-three unpaired comparison. They are **checks for reproducing this specific analysis**, not universal thresholds for RNA-seq data.
+
+| Measure | Human fibroid vs normal | Mouse MASLD vs SD |
+|---|---:|---:|
+| Quantified genes | 25,702 | 27,179 |
+| Genes retained after CPM filter | 18,067 | 13,201 |
+| Genes filtered out | 7,635 | 13,978 |
+| Significant DEGs, BH FDR < 0.05 | 428 | 4,712 |
+| Upregulated in case group | 188 | 2,378 |
+| Downregulated in case group | 240 | 2,334 |
+| Diagnostic PNGs | 5/5 | 5/5 |
+
+Gene-assignment proportions differed between the experiments (approximately **43.5–60.0% human** vs **84.5–86.7% mouse**). Mapping success and gene-assignment efficiency are **not the same statistic**. Differences can reflect annotation, library properties and analysis settings; they are not grounds on their own for biological conclusions. Likewise, the higher mouse DEG count does **not** establish better performance or higher biological validity.
+
+## 13. Output files and troubleshooting
+
+| Location | What RNAflowR produces |
 |---|---|
-| `qc/` | Per-file QC summary CSV, per-cycle tables and quality plots |
-| `bam/` | BAM alignments and Rsubread alignment summaries |
-| `counts/` | Raw count matrices, full featureCounts output, assignment statistics, optional chromosome-filter reports |
-| `results/differential_expression/` | Library-size barplot, logCPM boxplot, MDS plot, 100-gene heatmap, limma model diagnostic plot |
-| `results/` | Annotated DEG CSV, volcano plot, saved analysis, `sessionInfo.txt` |
+| `qc/` | FASTQ quality summaries and plots |
+| `bam/` | Per-sample BAMs and alignment information |
+| `counts/` | `raw_gene_counts.csv/.rds`, `raw_gene_counts_all_chromosomes.csv/.rds`, `featureCounts_assignment_summary.csv`, `featureCounts_full.rds`, sex-chromosome filter reports |
+| `results/DEG/` | Five diagnostic PNG figures |
+| `results/` | Annotated DEG table, volcano figure, saved R objects and package versions |
 
-The exact folders can be changed using each function's `outdir` or file-output arguments.
+**Missing FASTQ / mismatched mates:** Use `print(files1)`, `print(files2)` and the matching assertion in Step 5. Do not infer group identity from sorted file position.
 
----
+**Reference index missing:** Confirm `index_basename` is the **common prefix**, not an individual `.array` or `.tab` file, and that the reference FASTA really matches the intended assembly.
 
-## 14. Troubleshooting
+**Unexpected alignment-loop error:** `align_rnaseq()` returns a list, not one character. Use the `for` loop in Step 7. Avoid rerunning completed alignments simply because a subsequent R call failed.
 
-**`bash: syntax error near unexpected token ...`**  
-You entered R code in Bash. Start R first (type `R` on Linux) or use R/RStudio on Windows.
+**Low gene-assignment rate:** Review the assignment summary, reference/annotation compatibility, and **library strandedness**; sequencing mapping percentage is a separate measurement.
 
-**`there is no package called 'RNAflowR'`**  
-Complete Step 1 and run `library(RNAflowR)` again.
+**Wrong DEG direction:** Confirm `levels(sampleinfo$group)`; the second factor level represents the case group in these examples.
 
-**Reference index not found**  
-Check the `index_basename`. Supply the common index prefix, not one of the individual `.array`, `.tab`, or `.files` paths. An Rsubread index is required.
+**Annotation symbols missing:** Confirm `org.Hs.eg.db` for human or `org.Mm.eg.db` for mouse, and a compatible `annotation_keytype`.
 
-**FASTQ file not found or wrong pairs**  
-Check `sample_ids`, naming conventions, `files1`/`files2`, and `file.exists()`. Paired R1 and R2 files must belong to the same biological sample.
+**Large data / RAM / disk use:** Downloading FASTQs, building indices and mapping high-depth libraries can consume considerable storage; processing times depend on hardware and dataset size.
 
-**Low gene-assignment rate**  
-Inspect `counts/featureCounts_assignment_summary.csv`. Verify the genome assembly, annotation compatibility, library type, and **strandedness from the library-preparation protocol** before drawing biological conclusions.
+## 14. Scope, citation and availability
 
-**External GTF error**  
-Use **either** `annot_inbuilt` **or** `annotation_file`, not both. The reference assembly and chromosome names must agree.
+RNAflowR 0.1.1 has undergone a real-data end-to-end demonstration with human and mouse paired-end datasets, in addition to earlier synthetic checks. These runs demonstrate technical execution and output generation; they are **not** independent accuracy benchmarking against competing RNA-seq workflows, broad multi-platform testing or a substitute for experimental validation.
 
-**No annotation symbols**  
-Use a suitable organism database and matching identifier key type. `org.Hs.eg.db` is for human annotation only.
+Source: **https://github.com/MarioCHMGF/RNAflowR**. Cite the underlying Rsubread/Subread, featureCounts, edgeR, TMM and limma–voom methodology when reporting analyses. Foundational papers include Liao *et al.* (2013, 2014, 2019), Robinson *et al.* (2010), Robinson & Oshlack (2010), Law *et al.* (2014), Ritchie *et al.* (2015), and Benjamini & Hochberg (1995). Cite the original publications and accession numbers for the human and mouse datasets if reproducing these examples.
 
-**Heatmap missing**  
-Check that the installed RNAflowR version is **0.1.1 or newer** and inspect the directory specified by `outdir`. Very small gene matrices may not be suitable for the 100-gene heatmap.
+### Version 0.1.1 notes
 
-**Unexpected DEG sign (positive/negative logFC)**  
-Check the reference factor level in `sampleinfo$group` before running `myrnaseq()`.
-
----
-
-## 15. Software availability, citation, and development status
-
-RNAflowR can be installed directly into R using the command in Section 1; the source code is hosted at **https://github.com/MarioCHMGF/RNAflowR**. **No upload to GitHub is part of the analysis.** It builds on the R/Bioconductor ecosystem and established methods including Rsubread, featureCounts, edgeR, TMM, and limma–voom. When publishing results produced using RNAflowR, also cite the original research publications associated with the underlying methods and the source of any public RNA-seq dataset.
-
-Selected foundational references:
-
-- Liao, Y., Smyth, G. K., & Shi, W. (2013). The Subread aligner: Fast, accurate and scalable read mapping by seed-and-vote. *Nucleic Acids Research*, **41**, e108.
-- Liao, Y., Smyth, G. K., & Shi, W. (2014). featureCounts: An efficient general purpose program for assigning sequence reads to genomic features. *Bioinformatics*, **30**, 923–930.
-- Liao, Y., Smyth, G. K., & Shi, W. (2019). The R package Rsubread is easier, faster, cheaper and better for alignment and quantification of RNA sequencing reads. *Nucleic Acids Research*, **47**, e47.
-- Robinson, M. D., McCarthy, D. J., & Smyth, G. K. (2010). edgeR: A Bioconductor package for differential expression analysis of digital gene expression data. *Bioinformatics*, **26**, 139–140.
-- Robinson, M. D., & Oshlack, A. (2010). A scaling normalization method for differential expression analysis of RNA-seq data. *Genome Biology*, **11**, R25.
-- Law, C. W., Chen, Y., Shi, W., & Smyth, G. K. (2014). voom: Precision weights unlock linear model analysis tools for RNA-seq read counts. *Genome Biology*, **15**, R29.
-- Ritchie, M. E., et al. (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. *Nucleic Acids Research*, **43**, e47.
-- Benjamini, Y., & Hochberg, Y. (1995). Controlling the false discovery rate: A practical and powerful approach to multiple testing. *Journal of the Royal Statistical Society: Series B*, **57**, 289–300.
-
-### Version 0.1.1 changes
-
-- Added `outdir` to `myrnaseq()` to keep generated figures together.
-- Changed the highly variable gene heatmap to direct PNG export with `pheatmap(filename = ...)`.
-- Improved user instructions for library strandedness, reference indexing, file layout, and gene annotation.
-- Retained the original CPM filtering, TMM normalization, and limma–voom approach.
-
-**Current scope:** This release supports an accessible, modular RNA-seq processing workflow. Ongoing work includes broader real-data validation, benchmarking, improved error handling, and further simplification of the user interface.
+- `myrnaseq()` writes five diagnostic plots into its user-specified `outdir`, including the high-variance heatmap.
+- The original CPM filtering and downstream TMM/limma–voom procedure remain unchanged.
+- Mouse and human built-in annotations (`"mm10"`, `"hg19"`) were successfully tested with the same function interfaces.
+- `align_rnaseq()` returns a two-part **list** (`bam`, `alignment_summary`), whereas `quantify_genes()` returns an integer gene-by-sample count matrix.
